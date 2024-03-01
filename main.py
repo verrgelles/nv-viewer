@@ -1,8 +1,13 @@
 import serial.tools.list_ports
+import csv
 from PyQt5.QtMultimedia import QCameraInfo, QCamera
 from PyQt5.QtMultimediaWidgets import QCameraViewfinder
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMainWindow, QLineEdit, QPushButton, QComboBox, QLabel, \
     QGridLayout
+import pandas as pd
+import numpy as np
+from scipy import interpolate
+from scipy.interpolate import interp1d
 
 
 def find_com_port() -> str:
@@ -16,7 +21,7 @@ def find_com_port() -> str:
             return ports[i][1]
 
 
-def target_voltage(target_mech_angle: float, max_mech_angle: float, scaling_factor: float) -> float:
+def target_voltage(target_mech_angle: float, scaling_factor: float) -> float:
     """
     Args:
         target_mech_angle (float): механический угол, который хотим задать (может быть >(<) 0
@@ -25,10 +30,8 @@ def target_voltage(target_mech_angle: float, max_mech_angle: float, scaling_fact
     Returns:
          float: Возвращает значение напряжения в диапазоне [0; (max_mech_angle + target_mech_angle) * scaling_factor] Вольт
     """
-    if target_mech_angle <= 0:
-        return abs(target_mech_angle) * scaling_factor
-    elif target_mech_angle > 0:
-        return (max_mech_angle + target_mech_angle) * scaling_factor
+
+    return target_mech_angle * scaling_factor
 
 
 def max_voltage(max_mech_angle: float, scaling_factor: float) -> float:
@@ -42,19 +45,17 @@ def max_voltage(max_mech_angle: float, scaling_factor: float) -> float:
     return max_mech_angle * scaling_factor * 2
 
 
-def voltage_to_duty_cycle(target_voltage: float, pwm_max_voltage: float) -> float:
-    """
-        Args:
-            target_voltage (float): целевое значение напряжения
-            pwm_max_voltage (float): максимальное значения напряжения ШИМ
-
-        Returns:
-            float: коэффициент заполнения ШИМ
-        """
-    return target_voltage / pwm_max_voltage
+def voltage_centralization(target_voltage: float) -> float:
+    return target_voltage + 10
 
 
-def send_command(serial: serial.Serial, x_voltage: float, y_voltage: float, pwm_max_voltage: float):
+def voltage_to_duty_cycle(target_voltage: float) -> str:
+    d = pd.read_csv('data.csv')
+    f = interp1d(d['Реальное напряжение'], d['Коэффициент заполнения ШИМ'])
+    return format(float(f(target_voltage)), '.3f')
+
+
+def send_command(serial: serial.Serial, x_voltage: float, y_voltage: float):
     """
     Отправляет команду изменения положения зеркал на плату
 
@@ -65,7 +66,7 @@ def send_command(serial: serial.Serial, x_voltage: float, y_voltage: float, pwm_
         pwm_max_voltage (float): максимальное значения напряжения ШИМ
     """
     serial.write(
-        f"{voltage_to_duty_cycle(x_voltage, pwm_max_voltage)}|{voltage_to_duty_cycle(y_voltage, pwm_max_voltage)}F".encode()
+        f"{voltage_to_duty_cycle(x_voltage)}|{voltage_to_duty_cycle(y_voltage)}F".encode()
     )
 
 
@@ -191,7 +192,7 @@ class MainWindow(QMainWindow):
         y_target_voltage = target_voltage(t_y_angle, scale_factor)
 
         ser = serial.Serial(self.com_port, 115200)
-        send_command(ser, x_target_voltage, y_target_voltage, t_pwm_max_voltage)
+        send_command(ser, x_target_voltage, y_target_voltage)
         ser.close()
 
 
@@ -203,6 +204,54 @@ def main():
 
 
 if __name__ == '__main__':
-    # 0.2x0.2мм
+    # 0.2x0.    2мм
     # pattern = r"\d\W\d{1,5}"
-    main()
+    #main()
+
+    '''ser = serial.Serial('COM3', 115200)
+    
+    serial.write(
+        f"{voltage_to_duty_cycle(x_voltage)}|{voltage_to_duty_cycle(y_voltage)}F".encode()
+    )'''
+
+    volt_x = target_voltage(0.0, 0.8)
+    volt_x_1 = voltage_centralization(volt_x)
+    volt_y = target_voltage(0.0, 0.8)
+    volt_y_1 = voltage_centralization(volt_y)
+
+    print(volt_x_1, volt_y_1)
+
+    volt_x_2 = voltage_to_duty_cycle(volt_x_1)
+    volt_y_2 = voltage_to_duty_cycle(volt_y_1)
+
+    ser = serial.Serial('COM3', 115200)
+
+    print(f"{volt_x_2}|{volt_y_2}F".encode())
+
+    ser.write(
+        f"{volt_x_2}|{volt_y_2}F".encode()
+    )
+
+
+    def quant_level(value: str) -> int:
+        temp = ''
+        for s in value:
+            try:
+                temp += str(int(s))
+            except ValueError:
+                pass
+        return int(temp)
+
+
+    def to_voltage(value: str) -> float:
+        level = quant_level(value)
+        return float(3.3 / 4096 * level * 11.2)
+
+    while 1:
+        t = ser.read(6).decode()
+        print(t, to_voltage(t))
+
+
+
+
+
