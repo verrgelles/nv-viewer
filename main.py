@@ -1,12 +1,10 @@
 import serial.tools.list_ports
-import csv
 from PyQt5.QtMultimedia import QCameraInfo, QCamera
 from PyQt5.QtMultimediaWidgets import QCameraViewfinder
 from PyQt5.QtWidgets import QApplication, QWidget, QVBoxLayout, QMainWindow, QLineEdit, QPushButton, QComboBox, QLabel, \
     QGridLayout
+
 import pandas as pd
-import numpy as np
-from scipy import interpolate
 from scipy.interpolate import interp1d
 
 
@@ -25,34 +23,31 @@ def target_voltage(target_mech_angle: float, scaling_factor: float) -> float:
     """
     Args:
         target_mech_angle (float): механический угол, который хотим задать (может быть >(<) 0
-        max_mech_angle (float): максимальный механический угол (>0)
         scaling_factor (float): scaling factor
     Returns:
-         float: Возвращает значение напряжения в диапазоне [0; (max_mech_angle + target_mech_angle) * scaling_factor] Вольт
+         float: Возвращает значение напряжения в диапазоне [-target_mech_angle;target_mech_angle] * scaling_factor Вольт
     """
-
     return target_mech_angle * scaling_factor
 
-
-def max_voltage(max_mech_angle: float, scaling_factor: float) -> float:
+def voltage_centering(target_voltage: float) -> float:
     """
+    Сдвигает значение 0-го напряжения в точку 10 Вольт
     Args:
-        max_mech_angle (float): максимальный механический угол (>0)
-        scaling_factor (float): scaling factor
-    Returns:
-        float: Максимальное значение напряжения для данной конфигурации
+        target_voltage (float): рассчитанное значение напряжения
     """
-    return max_mech_angle * scaling_factor * 2
-
-
-def voltage_centralization(target_voltage: float) -> float:
     return target_voltage + 10
 
-
 def voltage_to_duty_cycle(target_voltage: float) -> str:
-    d = pd.read_csv('data.csv')
-    f = interp1d(d['Реальное напряжение'], d['Коэффициент заполнения ШИМ'])
-    return format(float(f(target_voltage)), '.3f')
+    """
+        Args:
+            target_voltage (float): целевое значение напряжения
+
+        Returns:
+            float: коэффициент заполнения ШИМ с коррекцией
+        """
+    d = pd.read_csv('pwm_correction.csv')
+    correction = interp1d(d['Реальное напряжение'], d['Коэффициент заполнения ШИМ'])
+    return format(float(correction(target_voltage)), '.3f')
 
 
 def send_command(serial: serial.Serial, x_voltage: float, y_voltage: float):
@@ -63,12 +58,29 @@ def send_command(serial: serial.Serial, x_voltage: float, y_voltage: float):
         serial: экземпляр класса Serial, предварительно сконфигурированный
         x_voltage (float): значение напряжения для зеркала X
         y_voltage (float): значение напряжения для зеркала Y
-        pwm_max_voltage (float): максимальное значения напряжения ШИМ
     """
     serial.write(
         f"{voltage_to_duty_cycle(x_voltage)}|{voltage_to_duty_cycle(y_voltage)}F".encode()
     )
 
+def quantum_level(value: str) -> int:
+    """
+    Преобразовывает сырой callback уровня квантования в число
+    """
+    t = ''
+    for s in value:
+        try:
+            t += str(int(s))
+        except ValueError:
+            pass
+    return int(t)
+
+def callback_to_voltage(value: str) -> float:
+    """
+    Преобразует полученный callback в напряжение (для коррекции моторов)
+    """
+    q_level = quantum_level(value)
+    return float(3.3/4096*q_level*11.2)
 
 class CameraWindow(QWidget):
     def __init__(self):
@@ -83,8 +95,8 @@ class CameraWindow(QWidget):
         cameras = QCameraInfo.availableCameras()
 
         for camera in cameras:
-            self.camera = camera
-            print(camera.description())
+            if camera.description() == 'HB-500':
+                self.camera = camera
 
         self.camera_view_finder = QCameraViewfinder()
         layout.addWidget(self.camera_view_finder)
@@ -104,7 +116,6 @@ class MainWindow(QMainWindow):
 
         self.com_port = None
         self.camera_widget = None
-        self.pwm_max_voltage = None
         self.scale_factor = None
         self.scale_factors = ["0.5", "0.8", "1"]
         self.x_angle = None
@@ -121,11 +132,6 @@ class MainWindow(QMainWindow):
         scale_factor_selector.insertItems(0, self.scale_factors)
         scale_factor_selector.currentIndexChanged.connect(self.scale_factor_chosen)
         scale_factor_selector.setCurrentIndex(1)
-
-        input_pwm_max_voltage = QLineEdit()
-        input_pwm_max_voltage.setPlaceholderText("Введите max напряжение ШИМ")
-        input_pwm_max_voltage.textChanged.connect(self.pwm_max_voltage_chosen)
-        input_pwm_max_voltage.setText('20')
 
         self.input_x_angle = QLineEdit()
         self.input_x_angle.setPlaceholderText("∠x")
@@ -144,7 +150,6 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout()
         widgets = [
             com_port_selector,
-            input_pwm_max_voltage,
             scale_factor_selector,
             self.input_x_angle,
             self.input_y_angle,
@@ -159,9 +164,6 @@ class MainWindow(QMainWindow):
         widget.setLayout(layout)
 
         self.setCentralWidget(widget)
-
-    def pwm_max_voltage_chosen(self, i):
-        self.pwm_max_voltage = i
 
     def scale_factor_chosen(self, i):
         self.scale_factor = float(self.scale_factors[i])
@@ -186,13 +188,15 @@ class MainWindow(QMainWindow):
         scale_factor = float(self.scale_factor)
         t_x_angle = float(self.x_angle)
         t_y_angle = float(self.y_angle)
-        t_pwm_max_voltage = int(self.pwm_max_voltage)
 
         x_target_voltage = target_voltage(t_x_angle, scale_factor)
+        x_target_voltage_centered = voltage_centering(x_target_voltage)
+
         y_target_voltage = target_voltage(t_y_angle, scale_factor)
+        y_target_voltage_centered = voltage_centering(y_target_voltage)
 
         ser = serial.Serial(self.com_port, 115200)
-        send_command(ser, x_target_voltage, y_target_voltage)
+        send_command(ser, x_target_voltage_centered, y_target_voltage_centered)
         ser.close()
 
 
@@ -202,22 +206,11 @@ def main():
     window.show()
     app.exec()
 
-
-if __name__ == '__main__':
-    # 0.2x0.    2мм
-    # pattern = r"\d\W\d{1,5}"
-    #main()
-
-    '''ser = serial.Serial('COM3', 115200)
-    
-    serial.write(
-        f"{voltage_to_duty_cycle(x_voltage)}|{voltage_to_duty_cycle(y_voltage)}F".encode()
-    )'''
-
+def debug():
     volt_x = target_voltage(0.0, 0.8)
-    volt_x_1 = voltage_centralization(volt_x)
+    volt_x_1 = voltage_centering(volt_x)
     volt_y = target_voltage(0.0, 0.8)
-    volt_y_1 = voltage_centralization(volt_y)
+    volt_y_1 = voltage_centering(volt_y)
 
     print(volt_x_1, volt_y_1)
 
@@ -232,26 +225,10 @@ if __name__ == '__main__':
         f"{volt_x_2}|{volt_y_2}F".encode()
     )
 
-
-    def quant_level(value: str) -> int:
-        temp = ''
-        for s in value:
-            try:
-                temp += str(int(s))
-            except ValueError:
-                pass
-        return int(temp)
-
-
-    def to_voltage(value: str) -> float:
-        level = quant_level(value)
-        return float(3.3 / 4096 * level * 11.2)
-
     while 1:
         t = ser.read(6).decode()
-        print(t, to_voltage(t))
+        print(t, callback_to_voltage(t))
 
-
-
-
+if __name__ == '__main__':
+    main()
 
