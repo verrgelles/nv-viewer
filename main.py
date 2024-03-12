@@ -23,6 +23,7 @@ def find_com_port() -> str:
         if 'FTDI' in ports[i][0]:
             return ports[i][1]
 
+
 # Deprecated
 def target_voltage(target_mech_angle: float, scaling_factor: float) -> float:
     """
@@ -71,6 +72,12 @@ def send_command(serial: serial.Serial, x_voltage: float, y_voltage: float):
     )
 
 
+def read_callback(serial: serial.Serial) -> list:
+    x = serial.read(6)
+    y = serial.read(6)
+    return [x, y]
+
+
 def quantum_level(value: str) -> int:
     """
     Преобразовывает сырой callback уровня квантования в число
@@ -90,6 +97,14 @@ def callback_to_voltage(value: str) -> float:
     """
     q_level = quantum_level(value)
     return float(3.3 / 4096 * q_level * 11.48)
+
+
+def normalize_callback(serial: serial.Serial) -> list[float]:
+    t = read_callback(serial)
+    x, y = t[0], t[1]
+    x = callback_to_voltage(x)
+    y = callback_to_voltage(y)
+    return [x, y]
 
 
 def get_number_of_photons(time_to_collect: float, frequency=2500000000, gain=0.0) -> float:
