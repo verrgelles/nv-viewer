@@ -183,7 +183,6 @@ def get_number_of_photons(time_to_collect: float, frequency=2500000000, gain=0.0
 
     if len(r_msg.txCh.photon_cnt_val) >= 1:
         # вернуть измеренное количество фотонов в заданной точке
-        print(r_msg.txCh.photon_cnt_val[0])
         return r_msg.txCh.photon_cnt_val[0]
     else:
         return 0
@@ -250,10 +249,10 @@ def get_color_gradient(c1, c2, n):
     return ["#" + "".join([format(int(round(val * 255)), "02x") for val in item]) for item in rgb_colors]
 
 
-def create_heatmap(data: list[list[float]]):
+def create_heatmap(data: pd.DataFrame):
     cmap = matplotlib.colors.ListedColormap(get_color_gradient("#000000", "#ff0000", 2000))
-    hm = sns.heatmap(data=data, cmap=cmap, xticklabels=100, yticklabels=100)
-    hm.set(title="Title", xlabel='x', ylabel='y')
+    hm = data.pivot(index='x', columns='y', values='v')
+    sns.heatmap(hm, cmap=cmap)
     plt.show()
 
 
@@ -328,5 +327,22 @@ def main():
     app.exec()
 
 
+def test_walk():
+    ser = serial.Serial('COM5', 115200)
+    f = open('test.csv', 'w')
+    for x in (np.arange(0.150, 0.180, 0.001)):
+        x = str(x)[:5]
+        if len(x) == 4:
+            x = f'{x}0'
+        for y in (np.arange(0.150, 0.200, 0.001)):
+            y = str(y)[:5]
+            if len(y) == 4:
+                y = f'{y}0'
+            ser.write(f"{x}|{y}F".encode())
+            time.sleep(1.0)
+            f.write(f'"({x}, {y})",{get_number_of_photons(1.0)}\n')
+    f.close()
+
+
 if __name__ == '__main__':
-    pass
+    main()
