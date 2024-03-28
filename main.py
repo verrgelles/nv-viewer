@@ -1,3 +1,4 @@
+import os
 import random
 import socket
 import time
@@ -8,7 +9,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import serial.tools.list_ports
-from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QMainWindow, QLineEdit, QPushButton, QLabel
+from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QMainWindow, QLineEdit, QPushButton, QLabel, QFileDialog
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
 from matplotlib.backends.backend_template import FigureCanvas
@@ -265,6 +266,7 @@ class MainWindow(QMainWindow):
         super(MainWindow, self).__init__()
 
         self.com_port = find_com_port()
+        self.map_path = None
         self.scale_factor = 0.8
         self.canvas = MplCanvas(self, width=5, height=5, dpi=100)
         self.x_angle = None
@@ -281,7 +283,7 @@ class MainWindow(QMainWindow):
         self.input_y_angle.textChanged.connect(self.y_angle_chosen)
 
         self.open_map_button = QPushButton("Открыть карту")
-        self.open_map_button.clicked.connect(self.start_button_clicked)
+        self.open_map_button.clicked.connect(self.open_map_button_clicked)
 
         self.start_button = QPushButton("Начать картирование")
         self.start_button.clicked.connect(self.start_button_clicked)
@@ -332,8 +334,17 @@ class MainWindow(QMainWindow):
     def y_angle_chosen(self, i):
         self.y_angle = i
 
-    def open_map_button(self):
-        pass
+
+    def open_map_button_clicked(self):
+        response = QFileDialog.getOpenFileNames(
+            parent=self,
+            caption='Выберите файл карты',
+            directory=os.getcwd(),
+            filter='CSV File (*.csv)'
+        )
+        self.map_path = response[0]
+        self.canvas.axes.cla()
+        self.canvas.axes.imshow(X=[[0,1,2,3], [4,5,6,7]])
 
     def start_button_clicked(self):
         scale_factor = float(self.scale_factor)
@@ -403,5 +414,6 @@ if __name__ == '__main__':
             f.write(f'{x},{y},{get_number_of_photons(1.0)}\n')
             print(f'{x},{y},{get_number_of_photons(1.0)}\n')
     f.close()"""
-
-main()
+    ser = serial.Serial('COM5', 115200)
+    ser.write(f"1.650|1.650F".encode())
+#main()
