@@ -4,10 +4,8 @@ import socket
 import time
 
 import matplotlib
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
 import serial.tools.list_ports
 from PyQt6.QtWidgets import QApplication, QWidget, QVBoxLayout, QMainWindow, QLineEdit, QPushButton, QLabel, QFileDialog
 from matplotlib.backends.backend_qt import NavigationToolbar2QT
@@ -399,21 +397,15 @@ def test_walk():
 # x 0.125-0.131
 # y 0.122-0.130
 if __name__ == '__main__':
-    """ser = serial.Serial('COM5', 115200)
-    f = open('test.csv', 'w')
-    for x in (np.arange(0.125, 0.131, 0.001)):
-        x = str(x)[:5]
-        if len(x) == 4:
-            x = f'{x}0'
-        for y in (np.arange(0.122, 0.130, 0.001)):
-            y = str(y)[:5]
-            if len(y) == 4:
-                y = f'{y}0'
+    ser = serial.Serial('COM3', 115200)
+    #f = open('test.csv', 'w')
+    ser.write(f"0.000|0.100F".encode())
+    k = 0
+    for x in (np.arange(0.000, 3.300, 0.001)):
+        x = format(float(x), '.3f')
+        for y in (np.arange(0.100, 3.300, 0.001)):
+            k+=1
+            y = format(float(y), '.3f')
             ser.write(f"{x}|{y}F".encode())
-            time.sleep(1.0)
-            f.write(f'{x},{y},{get_number_of_photons(1.0)}\n')
-            print(f'{x},{y},{get_number_of_photons(1.0)}\n')
-    f.close()"""
-    ser = serial.Serial('COM5', 115200)
-    ser.write(f"1.650|1.650F".encode())
-#main()
+            print(f"{x}|{y}F", k)
+            time.sleep(1)
